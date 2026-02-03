@@ -1,0 +1,48 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.108
+
+      - name: Build WASM client
+        run: cargo build -p noirtty-web-client --target wasm32-unknown-unknown --release
+
+      - name: Run wasm-bindgen
+        run: wasm-bindgen --target web --out-dir /tmp/noirtty-wasm target/wasm32-unknown-unknown/release/noirtty_web_client.wasm
+
+      - name: Build server
+        run: cargo build -p noirtty-web-server --release
+
+      - name: Package artifacts
+        run: |
+          mkdir -p dist
+          cp target/release/noirtty-web-server dist/
+          cp /tmp/noirtty-wasm/noirtty_web_client* dist/
+          tar -czf noirtty-linux.tar.gz -C dist .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/noirtty-web-server
+            dist/noirtty_web_client*
+            noirtty-linux.tar.gz
