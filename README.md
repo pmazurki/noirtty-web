@@ -93,6 +93,12 @@ NoirTTY embeds `static/` into the server binary. If you want to force file-based
 NOIRTTY_EMBED_STATIC=0 ./dist/noirtty-web-server
 ```
 
+Data directory:
+By default certs/passkeys are stored in `./certs`. To override:
+```bash
+NOIRTTY_DATA_DIR=/path/to/data ./dist/noirtty-web-server
+```
+
 ## Project Structure
 
 ```

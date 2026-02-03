@@ -12,7 +12,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response, Redirect},
     routing::{get, post},
-    ServiceExt,
     Router,
 };
 use alacritty_terminal::{
@@ -108,8 +107,6 @@ struct AppState {
     sessions: Arc<DashMap<String, Arc<Session>>>,
     auth: auth::AuthState,
     config_path: Arc<std::path::PathBuf>,
-    static_dir: Arc<std::path::PathBuf>,
-    use_embedded_static: bool,
     debug_ui: bool,
 }
 
@@ -134,8 +131,13 @@ async fn main() {
     info!("Starting NoirTTY Web Server...");
 
     let (use_https, cert_hosts, reset_auth, rp_host) = parse_tls_args();
-    let data_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../certs");
+    let data_dir = std::env::var("NOIRTTY_DATA_DIR")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("certs"));
     std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+    info!("Data directory: {:?}", data_dir);
 
     // Determine the host for WebAuthn (use --host or first cert host, default localhost)
     let webauthn_host = rp_host.unwrap_or_else(|| "localhost".to_string());
@@ -176,8 +178,6 @@ async fn main() {
         sessions: Arc::new(DashMap::new()),
         auth: auth.clone(),
         config_path: Arc::new(static_dir.join("config.json")),
-        static_dir: Arc::new(static_dir.clone()),
-        use_embedded_static,
         debug_ui,
     };
 
@@ -193,7 +193,7 @@ async fn main() {
         .service(ServeDir::new(&static_dir).append_index_html_on_directories(true));
 
     // All routes with state
-    let mut app = Router::new()
+    let mut app = Router::<AppState>::new()
         // Auth routes (no auth required)
         .route("/setup", get(setup_page_handler))
         .route("/login", get(login_page_handler))
@@ -207,15 +207,15 @@ async fn main() {
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler_with_auth))
         .route("/health", get(|| async { "OK" }))
-        .route("/config.json", get(config_handler))
-        .with_state(state.clone())
-        .layer(CorsLayer::permissive());
+        .route("/config.json", get(config_handler));
 
     if use_embedded_static {
         app = app.fallback(get(static_handler));
     } else {
         app = app.fallback_service(static_service);
     }
+
+    let app = app.with_state(state.clone()).layer(CorsLayer::permissive());
 
     let addr: SocketAddr = "0.0.0.0:3000".parse().unwrap();
     if use_https {
@@ -313,14 +313,7 @@ async fn config_handler(State(state): State<AppState>) -> impl IntoResponse {
     )
 }
 
-async fn static_handler(
-    State(state): State<AppState>,
-    AxumPath(path): AxumPath<String>,
-) -> Response {
-    if !state.use_embedded_static {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-
+async fn static_handler(AxumPath(path): AxumPath<String>) -> Response {
     let mut rel = path.trim_start_matches('/').to_string();
     if rel.is_empty() || rel.ends_with('/') {
         rel.push_str("index.html");
