@@ -12,6 +12,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response, Redirect},
     routing::{get, post},
+    ServiceExt,
     Router,
 };
 use alacritty_terminal::{
@@ -238,7 +239,7 @@ async fn main() {
         warn!("⚠️  Use only for local development. Run with HTTPS in production.");
         info!("Server listening on http://{}:3000", webauthn_host);
         let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(listener, app.into_make_service()).await.unwrap();
     }
 }
 
