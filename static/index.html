@@ -1,0 +1,2290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#1C1C1E">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="NoirTTY">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="icon" href="/icon-192x192.png" sizes="192x192" type="image/png">
+    <title>NoirTTY Web Terminal</title>
+    <style>
+        @layer base, components, utilities;
+
+        @layer base {
+            @font-face {
+                font-family: '0xProto Nerd Font Mono';
+                src: url('/fonts/0xProtoNerdFontMono-Regular.ttf') format('truetype');
+                font-weight: 400;
+                font-style: normal;
+                font-display: swap;
+            }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            html, body {
+                width: 100%;
+                height: 100vh;
+                height: 100dvh;
+                overflow: hidden;
+                background: var(--terminal-bg, #1e1e1e);
+                font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                color-scheme: dark;
+                overscroll-behavior: none;
+            }
+        }
+        @layer components {
+            #terminal-canvas {
+                width: 100%;
+                height: 100%;
+                display: block;
+                background: var(--terminal-bg, #1e1e1e);
+                position: fixed;
+                left: 0;
+                top: 0;
+                /* Size controlled by JS for precise pixel matching */
+            }
+            #ime-input {
+                position: fixed;
+                opacity: 0;
+                left: -9999px;
+                top: 0;
+                width: 1px;
+                height: 1px;
+                z-index: -1;
+            }
+        }
+        :root {
+            --terminal-bg: #1e1e1e;
+            --edge-pad: 8px;
+            --overlay-bg: rgba(28, 28, 30, 0.9);
+            --toolbar-bg: rgba(0, 0, 0, 0.65);
+            --key-bg: #4A4A4C;
+            --key-bg-dark: #3A3A3C;
+            --text-main: #FFFFFF;
+            --text-sub: rgba(235, 235, 245, 0.6);
+            --danger: #FF453A;
+            --panel-radius: 20px;
+            --pill-radius: 999px;
+            --blur: 16px;
+            --toolbar-margin: 16px;
+            --toolbar-gap: 8px;
+            --keyboard-offset: 0px;
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-right: env(safe-area-inset-right, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --safe-left: env(safe-area-inset-left, 0px);
+        }
+        @supports (-webkit-touch-callout: none) {
+            :root {
+                --toolbar-margin: 10px;
+                --toolbar-gap: 6px;
+            }
+        }
+        #toolbar {
+            position: fixed;
+            left: max(var(--toolbar-margin), var(--safe-left));
+            right: max(var(--toolbar-margin), var(--safe-right));
+            bottom: max(var(--toolbar-margin), var(--safe-bottom));
+            z-index: 30;
+            height: clamp(44px, 8vh, 56px);
+            padding: 0 clamp(12px, 3vw, 20px);
+            border-radius: var(--pill-radius);
+            background: var(--toolbar-bg);
+            backdrop-filter: blur(var(--blur));
+            -webkit-backdrop-filter: blur(var(--blur));
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: clamp(8px, 2vw, 14px);
+            flex-direction: row;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            overflow-y: hidden;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+            scroll-snap-type: x proximity;
+            scroll-padding: 12px;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: transform 220ms ease, opacity 220ms ease, width 220ms ease, height 220ms ease;
+            transform-origin: right center;
+            transform: scale(1);
+            container-type: inline-size;
+            container-name: toolbar;
+        }
+        #toolbar::-webkit-scrollbar {
+            display: none;
+        }
+        body.keyboard-open #toolbar {
+            bottom: calc(var(--keyboard-offset) + var(--toolbar-gap) + var(--safe-bottom));
+        }
+        #toolbar .mini-btn {
+            display: none;
+        }
+        #toolbar .mini-icon {
+            width: 20px;
+            height: 20px;
+            stroke: var(--text-main);
+            stroke-width: 2.2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            opacity: 0.9;
+        }
+        #toolbar.minimized {
+            left: auto;
+            right: max(var(--toolbar-margin), var(--safe-right));
+            width: clamp(40px, 8vw, 48px);
+            height: clamp(40px, 8vw, 48px);
+            padding: 0;
+            justify-content: center;
+            border-radius: 50%;
+            overflow: hidden;
+            transform: scale(0.92);
+        }
+        #toolbar.minimized .toolbar-group {
+            display: none;
+        }
+        #toolbar.minimized .mini-btn {
+            display: grid;
+        }
+        #toolbar .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            flex: 0 0 auto;
+        }
+        #toolbar-nav {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            flex: 0 0 auto;
+        }
+        #toolbar.nav-open #toolbar-nav {
+            display: flex;
+        }
+        .toolbar-btn {
+            width: clamp(32px, 8cqi, 40px);
+            height: clamp(32px, 8cqi, 40px);
+            border-radius: clamp(10px, 2.5cqi, 14px);
+            border: none;
+            background: transparent;
+            display: grid;
+            place-items: center;
+            color: var(--text-main);
+            cursor: pointer;
+            transition: background 120ms ease, transform 120ms ease;
+            scroll-snap-align: center;
+            scroll-snap-stop: normal;
+            -webkit-appearance: none;
+            appearance: none;
+            flex-shrink: 0;
+        }
+        .toolbar-btn:focus-visible,
+        .kbd-key:focus-visible {
+            outline: 2px solid rgba(255, 255, 255, 0.35);
+            outline-offset: 2px;
+        }
+        .toolbar-btn:active {
+            background: rgba(255, 255, 255, 0.12);
+            transform: scale(0.96);
+        }
+        .toolbar-btn.active {
+            background: rgba(255, 255, 255, 0.16);
+        }
+        .toolbar-btn.nav {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.08);
+        }
+        /* Small screens - already handled by clamp(), but ensure SVG scales */
+        @media (max-width: 430px) {
+            .toolbar-btn svg {
+                width: clamp(18px, 5vw, 22px);
+                height: clamp(18px, 5vw, 22px);
+            }
+            .toolbar-btn.nav {
+                width: clamp(26px, 7vw, 32px);
+                height: clamp(26px, 7vw, 32px);
+            }
+        }
+        .toolbar-btn svg {
+            width: clamp(20px, 5cqi, 26px);
+            height: clamp(20px, 5cqi, 26px);
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        #keyboard {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 25;
+            padding: clamp(8px, 2vh, 16px) max(10px, var(--safe-right)) max(16px, var(--safe-bottom)) max(10px, var(--safe-left));
+            background: var(--overlay-bg);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(var(--blur));
+            -webkit-backdrop-filter: blur(var(--blur));
+            transform: translateY(110%);
+            opacity: 0;
+            transition: transform 220ms ease, opacity 200ms ease;
+            container-type: inline-size;
+            container-name: keyboard;
+        }
+        #keyboard.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        #keyboard-accessory {
+            display: none;
+            gap: 6px;
+            padding: 4px 6px 10px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+        }
+        #keyboard-accessory.show {
+            display: flex;
+        }
+        #keyboard-accessory::-webkit-scrollbar {
+            display: none;
+        }
+        .kbd-row {
+            display: flex;
+            gap: clamp(4px, 1vw, 8px);
+            padding: clamp(2px, 0.5vh, 6px) clamp(4px, 1vw, 8px);
+        }
+        .kbd-key {
+            flex: 1;
+            height: clamp(38px, 6vh, 48px);
+            border-radius: clamp(5px, 1vw, 8px);
+            background: var(--key-bg);
+            color: var(--text-main);
+            font-size: clamp(16px, 4vw, 22px);
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0px 1px 0px rgba(0, 0, 0, 0.4);
+            user-select: none;
+            touch-action: manipulation;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .kbd-key svg {
+            width: clamp(16px, 4vw, 22px);
+            height: clamp(16px, 4vw, 22px);
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .kbd-key:active {
+            transform: translateY(1px);
+            filter: brightness(1.08);
+        }
+        .kbd-key.active {
+            outline: 1px solid rgba(255, 255, 255, 0.35);
+        }
+        .kbd-key.toggle.active {
+            background: rgba(255, 255, 255, 0.18);
+        }
+        .kbd-key.fn {
+            background: var(--key-bg-dark);
+            font-size: 16px;
+            text-transform: uppercase;
+        }
+        .kbd-key.wide-2 { flex: 2; }
+        .kbd-key.wide-3 { flex: 3; }
+        .kbd-key.wide-4 { flex: 4; }
+        .kbd-key.space {
+            font-size: 16px;
+            position: relative;
+        }
+        .kbd-key.space .kbd-sub {
+            position: absolute;
+            right: 12px;
+            font-size: 12px;
+            color: var(--text-sub);
+        }
+        .kbd-key.acc {
+            height: clamp(30px, 5vh, 38px);
+            font-size: clamp(11px, 2.5vw, 14px);
+            background: rgba(50, 50, 50, 0.75);
+            flex: 0 0 auto;
+            min-width: clamp(38px, 10vw, 48px);
+            padding: 0 clamp(6px, 1.5vw, 12px);
+        }
+        .kbd-key.acc svg {
+            width: clamp(14px, 3.5vw, 20px);
+            height: clamp(14px, 3.5vw, 20px);
+            stroke: currentColor;
+            stroke-width: 1.8;
+        }
+
+        #settings-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 40;
+            display: none;
+            align-items: flex-end;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.35);
+        }
+        #settings-overlay.show {
+            display: flex;
+        }
+        #settings-panel {
+            width: min(420px, 92vw);
+            max-height: 80vh;
+            max-height: 80dvh;
+            margin-bottom: clamp(12px, 3vh, 20px);
+            background: var(--overlay-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: var(--panel-radius);
+            color: var(--text-main);
+            overflow: hidden;
+            overflow-y: auto;
+        }
+        .settings-options {
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            padding: 0 20px 16px;
+        }
+        .settings-options.show {
+            display: flex;
+        }
+        .settings-option {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-main);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 14px;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .settings-option.active {
+            background: rgba(255, 255, 255, 0.14);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+        .settings-option .muted {
+            color: var(--text-sub);
+            font-size: 12px;
+        }
+        .settings-item {
+            display: flex;
+            align-items: center;
+            gap: clamp(10px, 3vw, 16px);
+            padding: clamp(12px, 3vh, 18px) clamp(14px, 4vw, 22px);
+            font-size: clamp(14px, 3.5vw, 17px);
+            font-weight: 400;
+            border-bottom: 0.5px solid rgba(255, 255, 255, 0.12);
+        }
+        .settings-item:last-child {
+            border-bottom: none;
+        }
+        .settings-item svg {
+            width: 22px;
+            height: 22px;
+            stroke: currentColor;
+            stroke-width: 2;
+        }
+        .settings-item .chevron {
+            margin-left: auto;
+            color: #8E8E93;
+        }
+        .settings-item.danger {
+            color: var(--danger);
+        }
+
+        @media (hover: none) and (pointer: coarse) {
+            #status { top: auto; bottom: 8px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #toolbar,
+            #keyboard,
+            #settings-overlay,
+            .toolbar-btn,
+            .kbd-key {
+                transition: none !important;
+            }
+        }
+        @media (prefers-reduced-transparency: reduce) {
+            #toolbar,
+            #keyboard,
+            #settings-overlay,
+            #settings-panel {
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
+            #toolbar {
+                background: rgba(0, 0, 0, 0.95);
+            }
+            #keyboard {
+                background: rgba(28, 28, 30, 0.98);
+            }
+            #settings-panel {
+                background: rgba(28, 28, 30, 0.98);
+            }
+        }
+        /* Landscape on small screens - more compact UI */
+        @media (max-height: 500px) and (orientation: landscape) {
+            #toolbar {
+                height: clamp(36px, 10vh, 44px);
+            }
+            .kbd-key {
+                height: clamp(32px, 8vh, 40px);
+                font-size: clamp(14px, 3vh, 18px);
+            }
+            .kbd-row {
+                gap: 4px;
+                padding: 2px 4px;
+            }
+            #keyboard {
+                padding: 6px max(10px, var(--safe-right)) max(8px, var(--safe-bottom)) max(10px, var(--safe-left));
+            }
+        }
+        /* Container query for toolbar - compact mode */
+        @container toolbar (max-width: 380px) {
+            .toolbar-btn {
+                width: 28px;
+                height: 28px;
+            }
+            .toolbar-btn svg {
+                width: 18px;
+                height: 18px;
+            }
+        }
+        #status {
+            position: fixed;
+            top: max(8px, var(--safe-top));
+            left: 8px;
+            color: #aaa;
+            font: 12px monospace;
+            z-index: 50;
+        }
+        #reconnect-overlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: max(16px, var(--safe-top)) max(16px, var(--safe-right)) max(16px, var(--safe-bottom)) max(16px, var(--safe-left));
+            background: rgba(6, 8, 12, 0.55);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 60;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+        #reconnect-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .reconnect-card {
+            width: min(520px, 92vw);
+            border-radius: 20px;
+            background: rgba(18, 18, 20, 0.9);
+            color: var(--text-main);
+            padding: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transform: translateY(12px) scale(0.98);
+            opacity: 0;
+            transition: transform 0.25s ease, opacity 0.25s ease;
+        }
+        #reconnect-overlay.show .reconnect-card {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+        }
+        .reconnect-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        .reconnect-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .reconnect-desc {
+            font-size: 13px;
+            color: var(--text-sub);
+            line-height: 1.4;
+            margin-bottom: 16px;
+        }
+        .reconnect-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .reconnect-btn {
+            border: 0;
+            padding: 10px 14px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .reconnect-btn.primary {
+            background: rgba(110, 170, 255, 0.2);
+        }
+        .reconnect-btn.danger {
+            background: rgba(255, 69, 58, 0.18);
+            color: #ffd4d1;
+        }
+        .reconnect-spinner {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 3px solid rgba(255, 255, 255, 0.15);
+            border-top-color: rgba(255, 255, 255, 0.75);
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        #debug-panel {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 200;
+            max-width: min(90vw, 320px);
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: rgba(10, 12, 16, 0.72);
+            color: #dfe7f5;
+            font-size: 12px;
+            line-height: 1.35;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            display: none;
+            white-space: pre-line;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="terminal-canvas"></canvas>
+    <textarea id="ime-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+    <div id="status">Loading...</div>
+    <div id="debug-panel" aria-hidden="true"></div>
+    <div id="reconnect-overlay" role="dialog" aria-live="polite">
+        <div class="reconnect-card">
+            <div class="reconnect-header">
+                <div class="reconnect-spinner" aria-hidden="true"></div>
+                <div class="reconnect-title">Połączenie utracone</div>
+            </div>
+            <div class="reconnect-desc" id="reconnect-desc">Próbuję wznowić sesję…</div>
+            <div class="reconnect-actions">
+                <button class="reconnect-btn primary" type="button" id="reconnect-now">Wznów teraz</button>
+                <button class="reconnect-btn" type="button" id="reconnect-wait">Czekaj</button>
+                <button class="reconnect-btn danger" type="button" id="reconnect-new">Zakończ sesję i połącz</button>
+            </div>
+        </div>
+    </div>
+    <div id="toolbar" class="minimized" aria-label="Remote toolbar">
+        <div class="toolbar-group">
+            <button class="toolbar-btn" type="button" data-action="toggle-keyboard" aria-label="Keyboard">
+                <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h2M11 9h2M15 9h2M7 13h2M11 13h2M15 13h2M8 17h8"/></svg>
+            </button>
+            <button class="toolbar-btn" type="button" data-action="history" aria-label="History">
+                <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v5l4 2"/></svg>
+            </button>
+            <button class="toolbar-btn" type="button" data-action="meta" aria-label="Command">
+                <svg viewBox="0 0 24 24"><path d="M7.5 7.5a2 2 0 1 1 2 2H7.5v-2Z"/><path d="M16.5 7.5a2 2 0 1 0-2 2h2v-2Z"/><path d="M7.5 16.5a2 2 0 1 0 2-2H7.5v2Z"/><path d="M16.5 16.5a2 2 0 1 1-2-2h2v2Z"/><path d="M9 9h6v6H9z"/></svg>
+            </button>
+            <button class="toolbar-btn" type="button" data-action="toggle-accessory" aria-label="Navigation mode">
+                <svg viewBox="0 0 24 24"><path d="M12 3l3.5 3.5L12 10 8.5 6.5 12 3Z"/><path d="M21 12l-3.5 3.5L14 12l3.5-3.5L21 12Z"/><path d="M12 21l-3.5-3.5L12 14l3.5 3.5L12 21Z"/><path d="M3 12l3.5-3.5L10 12l-3.5 3.5L3 12Z"/></svg>
+            </button>
+            <button class="toolbar-btn" type="button" data-action="toggle-quick-nav" aria-label="Quick navigation">
+                <svg viewBox="0 0 24 24"><path d="M12 3l3.5 3.5L12 10 8.5 6.5 12 3Z"/><path d="M3 12l3.5-3.5L10 12l-3.5 3.5L3 12Z"/><path d="M21 12l-3.5 3.5L14 12l3.5-3.5L21 12Z"/></svg>
+            </button>
+        </div>
+        <div id="toolbar-nav" aria-label="Quick navigation">
+            <button class="toolbar-btn nav" type="button" data-action="nav-left" aria-label="Left">
+                <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+            </button>
+            <button class="toolbar-btn nav" type="button" data-action="nav-up" aria-label="Up">
+                <svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg>
+            </button>
+            <button class="toolbar-btn nav" type="button" data-action="nav-down" aria-label="Down">
+                <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <button class="toolbar-btn nav" type="button" data-action="nav-right" aria-label="Right">
+                <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+            </button>
+            <button class="toolbar-btn nav" type="button" data-action="nav-enter" aria-label="Enter">
+                <svg viewBox="0 0 24 24"><path d="M4 12h10"/><path d="M10 7l4 5-4 5"/><path d="M20 4v8"/></svg>
+            </button>
+        </div>
+        <div class="toolbar-group">
+            <button class="toolbar-btn" type="button" data-action="clipboard" aria-label="Clipboard">
+                <svg viewBox="0 0 24 24"><path d="M9 4h6a2 2 0 0 1 2 2v1h1a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1V6a2 2 0 0 1 2-2Z"/><path d="M9 7h6"/></svg>
+            </button>
+            <button class="toolbar-btn" type="button" data-action="paste" aria-label="Paste">
+                <svg viewBox="0 0 24 24"><path d="M9 4h6a2 2 0 0 1 2 2v1h1a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1V6a2 2 0 0 1 2-2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
+            </button>
+            <button class="toolbar-btn" type="button" data-action="settings" aria-label="Settings">
+                <svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 17h16"/><circle cx="8" cy="7" r="2"/><circle cx="16" cy="17" r="2"/><path d="M4 12h8"/><path d="M12 12h8"/></svg>
+            </button>
+            <button class="toolbar-btn" type="button" data-action="wake-lock" aria-label="Keep screen on">
+                <svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><circle cx="12" cy="18" r="1"/><path d="M9 7h6"/></svg>
+            </button>
+            <button class="toolbar-btn" type="button" data-action="lock" aria-label="Lock (require passkey)">
+                <svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/><circle cx="12" cy="16" r="1"/></svg>
+            </button>
+            <button class="toolbar-btn" type="button" data-action="collapse-toolbar" aria-label="Hide toolbar">
+                <svg viewBox="0 0 24 24"><path d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+            </button>
+        </div>
+        <button class="toolbar-btn mini-btn" type="button" data-action="expand-toolbar" aria-label="Show toolbar">
+            <svg class="mini-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 14l6-6 6 6"/></svg>
+        </button>
+    </div>
+
+    <div id="keyboard" aria-hidden="true">
+        <div id="keyboard-accessory" aria-label="Accessory row">
+            <button class="kbd-key acc" type="button" data-action="esc">Esc</button>
+            <button class="kbd-key acc toggle" type="button" data-mod="ctrl">Ctrl</button>
+            <button class="kbd-key acc toggle" type="button" data-mod="alt">Alt</button>
+            <button class="kbd-key acc" type="button" data-action="tab">Tab</button>
+            <button class="kbd-key acc" type="button" data-action="macro-ctrl-c">Ctrl+C</button>
+            <button class="kbd-key acc" type="button" data-action="macro-ctrl-d">Ctrl+D</button>
+            <button class="kbd-key acc" type="button" data-action="macro-ctrl-l">Ctrl+L</button>
+            <button class="kbd-key acc" type="button" data-action="macro-ctrl-r">Ctrl+R</button>
+            <button class="kbd-key acc" type="button" data-action="macro-ctrl-a">Ctrl+A</button>
+            <button class="kbd-key acc" type="button" data-action="macro-ctrl-e">Ctrl+E</button>
+            <button class="kbd-key acc" type="button" data-action="arrow-left"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button>
+            <button class="kbd-key acc" type="button" data-action="arrow-up"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+            <button class="kbd-key acc" type="button" data-action="arrow-down"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+            <button class="kbd-key acc" type="button" data-action="arrow-right"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>
+            <button class="kbd-key acc" type="button" data-action="home">Home</button>
+            <button class="kbd-key acc" type="button" data-action="end">End</button>
+            <button class="kbd-key acc" type="button" data-action="pgup">PgUp</button>
+            <button class="kbd-key acc" type="button" data-action="pgdn">PgDn</button>
+            <button class="kbd-key acc" type="button" data-action="f1">F1</button>
+            <button class="kbd-key acc" type="button" data-action="f2">F2</button>
+            <button class="kbd-key acc" type="button" data-action="f3">F3</button>
+            <button class="kbd-key acc" type="button" data-action="f4">F4</button>
+            <button class="kbd-key acc" type="button" data-action="f5">F5</button>
+            <button class="kbd-key acc" type="button" data-action="f6">F6</button>
+            <button class="kbd-key acc" type="button" data-action="f7">F7</button>
+            <button class="kbd-key acc" type="button" data-action="f8">F8</button>
+            <button class="kbd-key acc" type="button" data-action="f9">F9</button>
+            <button class="kbd-key acc" type="button" data-action="f10">F10</button>
+            <button class="kbd-key acc" type="button" data-action="f11">F11</button>
+            <button class="kbd-key acc" type="button" data-action="f12">F12</button>
+        </div>
+        <div id="keyboard-rows" aria-label="Virtual keyboard"></div>
+    </div>
+
+    <div id="settings-overlay" aria-hidden="true">
+        <div id="settings-panel" role="dialog" aria-modal="true" aria-label="Settings">
+            <div class="settings-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 9h6v6H9z"/></svg>Schowek<span class="chevron">&gt;</span></div>
+            <div class="settings-item"><svg viewBox="0 0 24 24"><path d="M6 10l6-6 6 6"/><path d="M6 14l6 6 6-6"/><rect x="7" y="10" width="10" height="4" rx="2"/></svg>Uzyj trybu zaslony<span class="chevron">&gt;</span></div>
+            <div class="settings-item" data-action="toggle-quality">
+                <svg viewBox="0 0 24 24"><path d="M4 8h16"/><path d="M4 12h10"/><path d="M4 16h6"/></svg>
+                Jakosc obrazu
+                <span class="chevron" id="quality-label">LAN</span>
+            </div>
+            <div class="settings-options" id="quality-options">
+                <button class="settings-option" type="button" data-quality="minimal">
+                    <span>Minimalna</span>
+                    <span class="muted">~10-12 fps, minimalny ruch</span>
+                </button>
+                <button class="settings-option" type="button" data-quality="lan">
+                    <span>LAN (wysoka)</span>
+                    <span class="muted">60 fps, pelna plynnosc</span>
+                </button>
+                <button class="settings-option" type="button" data-quality="cellular">
+                    <span>Komorkowa (oszczedna)</span>
+                    <span class="muted">30 fps, mniej danych</span>
+                </button>
+                <button class="settings-option" type="button" data-quality="max">
+                    <span>Maksymalna</span>
+                    <span class="muted">maksymalna jakosc</span>
+                </button>
+            </div>
+            <div class="settings-item"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12h2M3 12h2M12 19v2M12 3v2"/></svg>Szybkosc sledzenia kursora<span class="chevron">&gt;</span></div>
+            <div class="settings-item"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="10" rx="2"/><path d="M8 20h8"/></svg>Tryb wirtualnego wskaznika<span class="chevron">&gt;</span></div>
+            <div class="settings-item"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M8 8h8v8H8z"/></svg>Skalowanie<span class="chevron">&gt;</span></div>
+            <div class="settings-item"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>Tryb interakcji<span class="chevron">&gt;</span></div>
+            <div class="settings-item danger"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 8l8 8M16 8l-8 8"/></svg>Zamknij polaczenie</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { NoirTTYWeb } from './noirtty_web_client.js';
+
+        const SAFE_MODE = new URLSearchParams(window.location.search).get('safe') === '1';
+
+        function recordError(err, extra) {
+            const message = err && err.message ? err.message : String(err || 'Unknown error');
+            const stack = err && err.stack ? err.stack : '';
+            const payload = {
+                message,
+                stack,
+                extra: extra || null,
+                time: new Date().toISOString(),
+            };
+            try { localStorage.setItem('noirtty.last_error', JSON.stringify(payload)); } catch {}
+            const status = document.getElementById('status');
+            if (status) {
+                status.textContent = `Error: ${message}`;
+                status.style.color = '#f44';
+                status.style.display = 'block';
+            }
+        }
+
+        window.addEventListener('error', (event) => {
+            const extra = {
+                filename: event.filename,
+                lineno: event.lineno,
+                colno: event.colno,
+            };
+            recordError(event.error || event.message, extra);
+        });
+        window.addEventListener('unhandledrejection', (event) => {
+            recordError(event.reason || 'Unhandled rejection');
+        });
+
+        async function main() {
+            const status = document.getElementById('status');
+            const canvas = document.getElementById('terminal-canvas');
+            const toolbar = document.getElementById('toolbar');
+            const keyboard = document.getElementById('keyboard');
+            const keyboardRows = document.getElementById('keyboard-rows');
+            const accessoryRow = document.getElementById('keyboard-accessory');
+            const settingsOverlay = document.getElementById('settings-overlay');
+            const reconnectOverlay = document.getElementById('reconnect-overlay');
+            const reconnectDesc = document.getElementById('reconnect-desc');
+            const reconnectNowBtn = document.getElementById('reconnect-now');
+            const reconnectWaitBtn = document.getElementById('reconnect-wait');
+            const reconnectNewBtn = document.getElementById('reconnect-new');
+            const debugPanel = document.getElementById('debug-panel');
+            let keyboardVisible = false;
+            let accessoryVisible = false;
+            let layoutMode = 'alpha';
+            let shiftActive = false;
+            let ctrlActive = false;
+            let altActive = false;
+            let metaActive = false;
+            let quickNavVisible = false;
+            let wakeLock = null;
+            let rendererMaxSurfaceDim = null;
+            let reconnecting = false;
+            let reconnectPaused = false;
+            let reconnectDeadline = 0;
+            let reconnectTick = null;
+            let everConnected = false;
+            const reconnectWindowMs = 10 * 60 * 1000;
+            const reconnectNowBase = reconnectNowBtn?.textContent || 'Wznów teraz';
+            const reconnectWaitBase = reconnectWaitBtn?.textContent || 'Czekaj';
+            const reconnectNewBase = reconnectNewBtn?.textContent || 'Zakończ sesję i połącz';
+            let connecting = false;
+            const imeInput = document.getElementById('ime-input');
+
+            const defaultConfig = {
+                font: {
+                    size: 14,
+                    stack: [
+                        "0xProto Nerd Font Mono",
+                        "0xProto Nerd Font",
+                        "Noto Sans Mono",
+                        "Noto Sans Symbols2",
+                        "JetBrains Mono",
+                        "Fira Code",
+                        "MesloLGS NF",
+                        "SF Mono",
+                        "Monaco",
+                        "Menlo",
+                        "Consolas",
+                        "Ubuntu Mono",
+                        "Liberation Mono",
+                        "DejaVu Sans Mono",
+                        "Apple Color Emoji",
+                        "Segoe UI Emoji",
+                        "Segoe UI Symbol",
+                        "Noto Color Emoji",
+                        "Twemoji Mozilla",
+                        "monospace",
+                    ],
+                },
+                colors: {
+                    background: "#1e1e1e",
+                    selection: "#264f78",
+                    cursor: "#c0c0c0",
+                    cursorText: "#1e1e1e",
+                },
+            };
+
+            let sessionFromUrl = false;
+            function getOrCreateSessionId() {
+                const key = 'noirtty.session_id';
+                const storage = window.sessionStorage;
+                const params = new URLSearchParams(window.location.search);
+                const fromUrl = params.get('session');
+                if (fromUrl) {
+                    sessionFromUrl = true;
+                    try { storage.setItem(key, fromUrl); } catch {}
+                    return fromUrl;
+                }
+                try {
+                    const existing = storage.getItem(key);
+                    if (existing) {
+                        params.set('session', existing);
+                        history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+                        return existing;
+                    }
+                } catch {}
+                const generated = (crypto && crypto.randomUUID)
+                    ? crypto.randomUUID()
+                    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                params.set('session', generated);
+                history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+                try { storage.setItem(key, generated); } catch {}
+                return generated;
+            }
+
+            function regenerateSessionId() {
+                if (sessionFromUrl) return;
+                const key = 'noirtty.session_id';
+                const storage = window.sessionStorage;
+                const params = new URLSearchParams(window.location.search);
+                const generated = (crypto && crypto.randomUUID)
+                    ? crypto.randomUUID()
+                    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                params.set('session', generated);
+                history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+                try { storage.setItem(key, generated); } catch {}
+                return generated;
+            }
+
+            async function loadConfig() {
+                try {
+                    const res = await fetch(`./config.json?v=${Date.now()}`, { cache: 'no-store' });
+                    if (!res.ok) return null;
+                    return await res.json();
+                } catch {
+                    return null;
+                }
+            }
+
+            function fontStackToCss(stack) {
+                if (Array.isArray(stack)) {
+                    return stack.map((f) => `'${f}'`).join(', ');
+                }
+                return String(stack || '');
+            }
+
+            try {
+                if (SAFE_MODE) {
+                    const last = (() => {
+                        try { return localStorage.getItem('noirtty.last_error'); } catch { return null; }
+                    })();
+                    status.textContent = last ? `Safe mode. Last error: ${last}` : 'Safe mode. No error log.';
+                    status.style.color = '#f44';
+                    status.style.display = 'block';
+                    return;
+                }
+                const cfg = (await loadConfig()) || defaultConfig;
+                const fontSize = cfg?.font?.size ?? defaultConfig.font.size;
+                const fontStack = fontStackToCss(cfg?.font?.stack ?? defaultConfig.font.stack);
+                const background = cfg?.colors?.background ?? defaultConfig.colors.background;
+                const selection = cfg?.colors?.selection ?? defaultConfig.colors.selection;
+                const cursor = cfg?.colors?.cursor ?? defaultConfig.colors.cursor;
+                const cursorText = cfg?.colors?.cursorText ?? defaultConfig.colors.cursorText;
+                const ui = cfg?.ui ?? {};
+                const perfCfg = cfg?.performance ?? {};
+                const transportCfg = cfg?.transport ?? {};
+                const ua = navigator.userAgent || '';
+                const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                const iosPerf = perfCfg?.ios ?? {};
+                const perfProfiles = perfCfg.profiles ?? {
+                    minimal: { maxFps: 12, maxFrames: 1, serverMinIntervalMs: 120 },
+                    lan: { maxFps: 60, maxFrames: 8, serverMinIntervalMs: 0 },
+                    cellular: { maxFps: 30, maxFrames: 2, serverMinIntervalMs: 50 },
+                    max: { maxFps: 60, maxFrames: 0, serverMinIntervalMs: 0 },
+                };
+                const toolbarAffectsViewport = ui?.toolbarAffectsViewport ?? false;
+
+                console.log('Loading WASM...');
+                status.textContent = 'Loading WASM...';
+                await init();
+                console.log('WASM loaded');
+
+                status.textContent = 'Creating terminal...';
+                const terminal = new NoirTTYWeb('terminal-canvas');
+                console.log('Terminal instance created');
+
+                // Setup canvas
+                let resizePending = false;
+                let resizeInProgress = false;
+                let canResize = false;
+                let pendingResize = false;
+                let forceResize = false;
+                let lastPhysicalWidth = 0;
+                let lastPhysicalHeight = 0;
+                let lastCssWidth = 0;
+                let lastCssHeight = 0;
+                function scheduleResize(force = false) {
+                    if (force) forceResize = true;
+                    if (resizePending) return;
+                    resizePending = true;
+                    requestAnimationFrame(() => {
+                        resizePending = false;
+                        resize();
+                    });
+                }
+
+                function resize() {
+                    if (!canResize) {
+                        pendingResize = true;
+                        return;
+                    }
+                    if (resizeInProgress) return;
+                    if (connecting) {
+                        pendingResize = true;
+                        return;
+                    }
+                    resizeInProgress = true;
+                    const baseWidth = (window.visualViewport && window.visualViewport.width) || window.innerWidth;
+                    const baseHeight = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+                    const rootComputed = getComputedStyle(document.documentElement);
+                    const safeTop = parseFloat(rootComputed.getPropertyValue('--safe-top')) || 0;
+                    const safeRight = parseFloat(rootComputed.getPropertyValue('--safe-right')) || 0;
+                    const safeBottom = parseFloat(rootComputed.getPropertyValue('--safe-bottom')) || 0;
+                    const safeLeft = parseFloat(rootComputed.getPropertyValue('--safe-left')) || 0;
+                    const edgePad = parseFloat(rootComputed.getPropertyValue('--edge-pad')) || 0;
+                    const insetTop = safeTop + edgePad;
+                    const insetRight = safeRight + edgePad;
+                    const insetBottom = safeBottom + edgePad;
+                    const insetLeft = safeLeft + edgePad;
+                    const width = Math.max(1, baseWidth - insetLeft - insetRight);
+                    let height = Math.max(1, baseHeight - insetTop - insetBottom);
+
+                    // Avoid overlays covering the terminal.
+                    let overlayTop = baseHeight;
+                    if (keyboardVisible && keyboard) {
+                        const kRect = keyboard.getBoundingClientRect();
+                        if (kRect.top > 0) overlayTop = Math.min(overlayTop, kRect.top);
+                    }
+                    if (toolbarAffectsViewport && toolbar && !toolbar.classList.contains('minimized')) {
+                        const tRect = toolbar.getBoundingClientRect();
+                        if (tRect.top > 0) overlayTop = Math.min(overlayTop, tRect.top);
+                    }
+                    if (!Number.isFinite(overlayTop) || overlayTop <= 0) {
+                        overlayTop = baseHeight;
+                    }
+                    const overlayLimit = overlayTop - insetTop;
+                    if (Number.isFinite(overlayLimit) && overlayLimit > 0) {
+                        height = Math.min(height, overlayLimit);
+                    }
+                    if (!Number.isFinite(height) || height <= 0) {
+                        height = Math.max(1, baseHeight - insetTop - insetBottom);
+                    }
+                    const deviceDpr = window.devicePixelRatio || 1;
+                    const maxSurfaceDim = rendererMaxSurfaceDim;
+                    const cssWidth = Math.max(1, Math.floor(width));
+                    const cssHeight = Math.max(1, Math.floor(height));
+                    let effectiveDpr = deviceDpr;
+                    const dprCap = isIOS ? Number(iosPerf.maxDpr) : Number(perfCfg.maxDpr);
+                    if (Number.isFinite(dprCap) && dprCap > 0) {
+                        effectiveDpr = Math.min(effectiveDpr, dprCap);
+                    }
+                    if (maxSurfaceDim && Number.isFinite(maxSurfaceDim)) {
+                        const maxDprW = maxSurfaceDim / cssWidth;
+                        const maxDprH = maxSurfaceDim / cssHeight;
+                        effectiveDpr = Math.min(deviceDpr, maxDprW, maxDprH);
+                    }
+                    let physicalWidth = Math.max(1, Math.floor(cssWidth * effectiveDpr));
+                    let physicalHeight = Math.max(1, Math.floor(cssHeight * effectiveDpr));
+                    if (maxSurfaceDim && Number.isFinite(maxSurfaceDim)) {
+                        physicalWidth = Math.min(physicalWidth, maxSurfaceDim);
+                        physicalHeight = Math.min(physicalHeight, maxSurfaceDim);
+                    }
+                    const cssChanged = cssWidth !== lastCssWidth || cssHeight !== lastCssHeight;
+                    if (cssChanged) forceResize = true;
+                    const prevCssWidth = lastCssWidth;
+                    const prevCssHeight = lastCssHeight;
+                    const prevStyleWidth = canvas.style.width;
+                    const prevStyleHeight = canvas.style.height;
+                    canvas.style.left = `${insetLeft}px`;
+                    canvas.style.top = `${insetTop}px`;
+                    canvas.style.width = `${cssWidth}px`;
+                    canvas.style.height = `${cssHeight}px`;
+                    console.log(`Resizing to ${width}x${height}`);
+                    if (!forceResize && physicalWidth === lastPhysicalWidth && physicalHeight === lastPhysicalHeight) {
+                        resizeInProgress = false;
+                        return;
+                    }
+
+                    // Update terminal size (this handles both canvas buffer size and grid resize)
+                    try {
+                        terminal.update_size(physicalWidth, physicalHeight);
+                        lastPhysicalWidth = physicalWidth;
+                        lastPhysicalHeight = physicalHeight;
+                        lastCssWidth = cssWidth;
+                        lastCssHeight = cssHeight;
+                        forceResize = false;
+                    } catch (err) {
+                        console.error('update_size failed:', err);
+                        if (prevCssWidth > 0 && prevCssHeight > 0) {
+                            canvas.style.width = `${prevCssWidth}px`;
+                            canvas.style.height = `${prevCssHeight}px`;
+                        } else if (prevStyleWidth || prevStyleHeight) {
+                            if (prevStyleWidth) canvas.style.width = prevStyleWidth;
+                            if (prevStyleHeight) canvas.style.height = prevStyleHeight;
+                        }
+                    } finally {
+                        resizeInProgress = false;
+                    }
+                }
+
+                // Resize observers
+                window.addEventListener('resize', scheduleResize);
+                if (window.visualViewport) {
+                    window.visualViewport.addEventListener('resize', scheduleResize);
+                }
+                if (window.ResizeObserver) {
+                    const ro = new ResizeObserver(() => scheduleResize());
+                    ro.observe(document.body);
+                    ro.observe(canvas);
+                }
+
+                status.textContent = 'Initializing renderer...';
+                await terminal.init_renderer('terminal-canvas');
+                terminal.set_render_config(fontSize, fontStack, background, selection, cursor, cursorText);
+                const rootStyle = document.documentElement.style;
+                rootStyle.setProperty('--terminal-bg', background);
+                if (ui.overlayBg) rootStyle.setProperty('--overlay-bg', ui.overlayBg);
+                if (ui.toolbarBg) rootStyle.setProperty('--toolbar-bg', ui.toolbarBg);
+                if (ui.keyBg) rootStyle.setProperty('--key-bg', ui.keyBg);
+                if (ui.keyBgDark) rootStyle.setProperty('--key-bg-dark', ui.keyBgDark);
+                if (ui.textMain) rootStyle.setProperty('--text-main', ui.textMain);
+                if (ui.textSub) rootStyle.setProperty('--text-sub', ui.textSub);
+                if (ui.danger) rootStyle.setProperty('--danger', ui.danger);
+                if (ui.panelRadius !== undefined) {
+                    rootStyle.setProperty('--panel-radius', typeof ui.panelRadius === 'number' ? `${ui.panelRadius}px` : ui.panelRadius);
+                }
+                if (ui.pillRadius !== undefined) {
+                    rootStyle.setProperty('--pill-radius', typeof ui.pillRadius === 'number' ? `${ui.pillRadius}px` : ui.pillRadius);
+                }
+                if (ui.blur !== undefined) {
+                    rootStyle.setProperty('--blur', typeof ui.blur === 'number' ? `${ui.blur}px` : ui.blur);
+                }
+                if (ui.edgePad !== undefined) {
+                    rootStyle.setProperty('--edge-pad', typeof ui.edgePad === 'number' ? `${ui.edgePad}px` : ui.edgePad);
+                }
+                if (ui.toolbarMargin !== undefined) {
+                    rootStyle.setProperty('--toolbar-margin', typeof ui.toolbarMargin === 'number' ? `${ui.toolbarMargin}px` : ui.toolbarMargin);
+                }
+                if (ui.toolbarGap !== undefined) {
+                    rootStyle.setProperty('--toolbar-gap', typeof ui.toolbarGap === 'number' ? `${ui.toolbarGap}px` : ui.toolbarGap);
+                }
+                document.body.style.background = background;
+                canvas.style.background = background;
+                const themeMeta = document.querySelector('meta[name="theme-color"]');
+                if (themeMeta) themeMeta.setAttribute('content', background);
+                console.log('Renderer initialized');
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('debug_text') === '1') {
+                    terminal.set_debug_text(true);
+                    console.warn('Debug text mode enabled');
+                }
+                const urlParams = new URLSearchParams(window.location.search);
+                const debugAllowed = ui?.debug === true;
+                const debugEnabled = debugAllowed && urlParams.get('debug') !== '0';
+                const keyboardDisabled = (
+                    urlParams.get('keyboard') === '0' ||
+                    urlParams.get('nokeyboard') === '1' ||
+                    ui?.disableKeyboard === true
+                );
+                let wsFormat = null;
+                {
+                    const fromUrl = urlParams.get('format') || urlParams.get('ws');
+                    if (fromUrl) {
+                        wsFormat = fromUrl;
+                    } else if (isIOS && transportCfg.iosFormat) {
+                        wsFormat = transportCfg.iosFormat;
+                    } else if (transportCfg.format) {
+                        wsFormat = transportCfg.format;
+                    } else {
+                        wsFormat = isIOS ? 'bincode' : 'json';
+                    }
+                }
+                window.noirtty = {
+                    terminal,
+                    rendererType: () => terminal.renderer_type(),
+                    setDebugText: (enabled) => terminal.set_debug_text(!!enabled),
+                };
+                console.log('Renderer type:', terminal.renderer_type());
+                if (debugPanel) {
+                    debugPanel.style.display = debugEnabled ? 'block' : 'none';
+                }
+                let debugLastFrameCount = 0;
+                let debugLastRenderCount = 0;
+                let debugLastBytes = 0;
+                let debugLastMsgs = 0;
+                let renderCount = 0;
+                let debugInterval = null;
+                function updateDebugPanel() {
+                    if (!debugEnabled || !debugPanel) return;
+                    const frameCount = terminal.frame_count ? Number(terminal.frame_count()) : 0;
+                    const framesPerSec = frameCount - debugLastFrameCount;
+                    debugLastFrameCount = frameCount;
+                    const rendersPerSec = renderCount - debugLastRenderCount;
+                    debugLastRenderCount = renderCount;
+                    const bytes = terminal.transport_bytes_received ? Number(terminal.transport_bytes_received()) : 0;
+                    const msgs = terminal.transport_messages_received ? Number(terminal.transport_messages_received()) : 0;
+                    const bytesPerSec = bytes - debugLastBytes;
+                    const msgsPerSec = msgs - debugLastMsgs;
+                    debugLastBytes = bytes;
+                    debugLastMsgs = msgs;
+                    const queueLen = terminal.transport_queue_len ? terminal.transport_queue_len() : 0;
+                    const conn = terminal.connection_state ? terminal.connection_state() : 3;
+                    const profile = (() => {
+                        try { return localStorage.getItem('noirtty.perf_profile') || perfCfg.profile || 'lan'; } catch { return perfCfg.profile || 'lan'; }
+                    })();
+                    const sizeLine = `${lastCssWidth}x${lastCssHeight} css / ${lastPhysicalWidth}x${lastPhysicalHeight} px`;
+                    const effDpr = (lastCssWidth && lastPhysicalWidth)
+                        ? (lastPhysicalWidth / lastCssWidth)
+                        : (window.devicePixelRatio || 1);
+                    const dprLine = `dpr=${(window.devicePixelRatio || 1).toFixed(2)} eff=${effDpr.toFixed(2)}`;
+                    const fmt = wsFormat || 'json';
+                    debugPanel.textContent =
+`debug=1  format=${fmt}  renderer=${terminal.renderer_type()}
+conn=${conn}  profile=${profile}  maxFps=${Math.round(1000 / frameIntervalMs)}
+frames/s=${framesPerSec}  renders/s=${rendersPerSec}
+bytes/s=${bytesPerSec}  msgs/s=${msgsPerSec}  q=${queueLen}
+size=${sizeLine}
+${dprLine}`;
+                }
+                if (debugEnabled) {
+                    if (terminal.transport_reset_counters) terminal.transport_reset_counters();
+                    debugInterval = setInterval(updateDebugPanel, 1000);
+                }
+
+                // Renderer ready; compute initial size before connect.
+                canResize = true;
+                if (terminal.max_surface_dim) {
+                    try {
+                        rendererMaxSurfaceDim = terminal.max_surface_dim();
+                    } catch (err) {
+                        console.warn('max_surface_dim failed:', err);
+                        rendererMaxSurfaceDim = null;
+                    }
+                }
+                resize();
+
+                // Ensure correct size after fonts load
+                if (document.fonts && document.fonts.ready) {
+                    document.fonts.ready.then(() => scheduleResize(true)).catch(() => {});
+                }
+
+                status.textContent = 'Connecting to server...';
+                
+                let sessionId = getOrCreateSessionId();
+                console.log('Session ID:', sessionId);
+                let connectFailures = 0;
+                async function connect() {
+                    if (connecting) return;
+                    connecting = true;
+                    const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+                    const wsParams = new URLSearchParams();
+                    wsParams.set('session', sessionId);
+                    if (wsFormat) wsParams.set('format', wsFormat);
+                    const wsUrl = `${wsProto}://${window.location.host}/ws?${wsParams.toString()}`;
+                    console.log(`Connecting to ${wsUrl}...`);
+                    try {
+                        await terminal.connect(wsUrl);
+                        console.log('Connected to server');
+                        status.textContent = 'Connected';
+                        status.style.color = '#6f6'; // Green
+                        setTimeout(() => { status.style.display = 'none'; }, 1000);
+                        connectFailures = 0;
+                        everConnected = true;
+                        stopReconnectFlow();
+                        scheduleResize(true);
+                    } catch (e) {
+                        console.error("Connection failed:", e);
+                        connectFailures += 1;
+                        if (!sessionFromUrl && connectFailures >= 3) {
+                            const newId = regenerateSessionId();
+                            if (newId) {
+                                sessionId = newId;
+                                console.warn('Session reset after failures:', sessionId);
+                                connectFailures = 0;
+                            }
+                        }
+                        status.textContent = 'Connection failed. Retrying in 2s...';
+                        status.style.color = '#f44';
+                        status.style.display = 'block';
+                        if (reconnecting && reconnectPaused) {
+                            return;
+                        }
+                        if (reconnecting && Date.now() > reconnectDeadline) {
+                            reconnectPaused = true;
+                            updateReconnectUi();
+                            return;
+                        }
+                        setTimeout(connect, 2000);
+                    } finally {
+                        connecting = false;
+                    }
+                }
+                
+                await connect();
+                if (terminal.connection_state) {
+                    setInterval(() => {
+                        const state = terminal.connection_state();
+                        if (state === 3) {
+                            if (everConnected && !reconnecting) {
+                                startReconnectFlow();
+                            } else if (reconnecting && !reconnectPaused) {
+                                connect();
+                            }
+                        }
+                    }, 2000);
+                }
+                canResize = true;
+                if (pendingResize) {
+                    pendingResize = false;
+                    scheduleResize();
+                } else {
+                    scheduleResize();
+                }
+
+                function updateReconnectUi() {
+                    if (!reconnectOverlay || !reconnectDesc) return;
+                    const now = Date.now();
+                    const remaining = reconnectDeadline - now;
+                    if (remaining <= 0) {
+                        reconnectPaused = true;
+                        reconnectDesc.textContent = 'Nie udało się wznowić w 10 min. Wybierz akcję.';
+                        if (reconnectNowBtn) reconnectNowBtn.textContent = reconnectNowBase;
+                        if (reconnectWaitBtn) reconnectWaitBtn.textContent = reconnectWaitBase;
+                        if (reconnectNewBtn) reconnectNewBtn.textContent = reconnectNewBase;
+                        reconnectOverlay.classList.add('show');
+                        return;
+                    }
+                    const mins = Math.floor(remaining / 60000);
+                    const secs = Math.floor((remaining % 60000) / 1000);
+                    reconnectDesc.textContent = `Próbuję wznowić sesję… Pozostało ${mins}:${String(secs).padStart(2, '0')}.`;
+                    if (reconnectNowBtn) reconnectNowBtn.textContent = `${reconnectNowBase} (${mins}:${String(secs).padStart(2, '0')})`;
+                    if (reconnectWaitBtn) reconnectWaitBtn.textContent = reconnectWaitBase;
+                    if (reconnectNewBtn) reconnectNewBtn.textContent = reconnectNewBase;
+                    reconnectOverlay.classList.add('show');
+                }
+
+                function startReconnectFlow() {
+                    reconnecting = true;
+                    reconnectPaused = false;
+                    reconnectDeadline = Date.now() + reconnectWindowMs;
+                    updateReconnectUi();
+                    if (reconnectTick) clearInterval(reconnectTick);
+                    reconnectTick = setInterval(updateReconnectUi, 1000);
+                    connect();
+                }
+
+                function stopReconnectFlow() {
+                    reconnecting = false;
+                    reconnectPaused = false;
+                    if (reconnectTick) clearInterval(reconnectTick);
+                    reconnectTick = null;
+                    if (reconnectOverlay) reconnectOverlay.classList.remove('show');
+                }
+
+                function resumeReconnectFlow() {
+                    reconnecting = true;
+                    reconnectPaused = false;
+                    reconnectDeadline = Date.now() + reconnectWindowMs;
+                    updateReconnectUi();
+                    if (reconnectTick) clearInterval(reconnectTick);
+                    reconnectTick = setInterval(updateReconnectUi, 1000);
+                    connect();
+                }
+
+                if (reconnectNowBtn) {
+                    reconnectNowBtn.addEventListener('click', () => resumeReconnectFlow());
+                }
+                if (reconnectWaitBtn) {
+                    reconnectWaitBtn.addEventListener('click', () => {
+                        reconnectPaused = false;
+                        updateReconnectUi();
+                    });
+                }
+                if (reconnectNewBtn) {
+                    reconnectNewBtn.addEventListener('click', () => {
+                        const newId = regenerateSessionId();
+                        if (newId) {
+                            sessionId = newId;
+                        }
+                        resumeReconnectFlow();
+                    });
+                }
+
+                async function copyToClipboard(text) {
+                    if (!text) return false;
+
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        try {
+                            await navigator.clipboard.writeText(text);
+                            return true;
+                        } catch (err) {
+                            console.error('Clipboard write failed:', err);
+                        }
+                    }
+
+                    // Fallback for Safari / non-secure contexts
+                    const textarea = document.createElement('textarea');
+                    textarea.value = text;
+                    textarea.setAttribute('readonly', '');
+                    textarea.style.position = 'fixed';
+                    textarea.style.left = '-9999px';
+                    textarea.style.top = '0';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.focus();
+                    textarea.setSelectionRange(0, textarea.value.length);
+                    textarea.select();
+                    let ok = false;
+                    try {
+                        ok = document.execCommand('copy');
+                    } catch (err) {
+                        console.error('execCommand copy failed:', err);
+                    }
+                    document.body.removeChild(textarea);
+                    return ok;
+                }
+
+                function isEditableTarget(target) {
+                    if (!target || !(target instanceof Element)) return false;
+                    const tag = target.tagName;
+                    return target.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+                }
+
+                // Keyboard
+                const isApplePlatform = (() => {
+                    const platform = navigator.platform || '';
+                    const ua = navigator.userAgent || '';
+                    return /Mac|iPhone|iPad|iPod/.test(platform) || /Mac OS X/.test(ua);
+                })();
+
+                document.addEventListener('keydown', async (e) => {
+                    const isImeTarget = e.target === imeInput;
+                    if (!isImeTarget && isEditableTarget(e.target)) return;
+                    const isAltGraph = typeof e.getModifierState === 'function' && e.getModifierState('AltGraph');
+                    const isMeta = e.metaKey;
+                    const isCtrl = isAltGraph ? false : e.ctrlKey;
+                    const isAlt = isAltGraph ? false : e.altKey;
+                    const isShift = e.shiftKey;
+                    const isCopy = isApplePlatform
+                        ? (isMeta && e.code === 'KeyC' && !e.altKey)
+                        : (isCtrl && isShift && e.code === 'KeyC' && !e.altKey);
+                    const isPaste = (isMeta || isCtrl) && e.code === 'KeyV' && !e.altKey;
+                    const isCut = isApplePlatform
+                        ? (isMeta && e.code === 'KeyX' && !e.altKey)
+                        : (isCtrl && isShift && e.code === 'KeyX' && !e.altKey);
+                    const isFuncKey = /^F\d{1,2}$/.test(e.code);
+
+                    if (isCopy) {
+                        const selection = terminal.copy_selection();
+                        if (selection) {
+                            e.preventDefault();
+                            const ok = await copyToClipboard(selection);
+                            if (!ok) console.warn('Copy failed');
+                            return;
+                        }
+                    }
+
+                    if (isPaste) {
+                        if (navigator.clipboard && navigator.clipboard.readText) {
+                            try {
+                                const text = await navigator.clipboard.readText();
+                                if (text) {
+                                    e.preventDefault();
+                                    terminal.send_input(text);
+                                    return;
+                                }
+                            } catch (err) {
+                                console.warn('Clipboard read failed:', err);
+                            }
+                        }
+                        focusIme();
+                        return;
+                    }
+
+                    if (isCut) {
+                        const selection = terminal.copy_selection();
+                        if (selection) {
+                            e.preventDefault();
+                            const ok = await copyToClipboard(selection);
+                            if (!ok) console.warn('Cut copy failed');
+                            return;
+                        }
+                    }
+
+                    const navKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab', 'Backspace', 'Enter', 'Escape', 'Home', 'End', 'PageUp', 'PageDown'];
+                    const bypassIme = isCtrl || isMeta || isAlt || isFuncKey || navKeys.includes(e.code);
+                    if (isImeTarget && !bypassIme) {
+                        return;
+                    }
+
+                    // console.log(`Key: ${e.code}`);
+                    if (isMeta || isCtrl || isFuncKey) {
+                        e.preventDefault();
+                    } else if (!e.ctrlKey && !e.metaKey && e.key.length === 1) {
+                        e.preventDefault();
+                    }
+                    if (navKeys.includes(e.code)) {
+                        e.preventDefault();
+                    }
+                    terminal.on_key(e.code, e.key, isCtrl, isAlt, isMeta, isShift);
+                });
+
+                // Clipboard integration for context menu / system copy-paste
+                document.addEventListener('copy', (e) => {
+                    const isImeTarget = e.target === imeInput;
+                    if (!isImeTarget && isEditableTarget(e.target)) return;
+                    const selection = terminal.copy_selection();
+                    if (!selection) return;
+                    e.preventDefault();
+                    if (e.clipboardData) {
+                        e.clipboardData.setData('text/plain', selection);
+                    } else {
+                        copyToClipboard(selection);
+                    }
+                });
+
+                document.addEventListener('cut', (e) => {
+                    const isImeTarget = e.target === imeInput;
+                    if (!isImeTarget && isEditableTarget(e.target)) return;
+                    const selection = terminal.copy_selection();
+                    if (!selection) return;
+                    e.preventDefault();
+                    if (e.clipboardData) {
+                        e.clipboardData.setData('text/plain', selection);
+                    } else {
+                        copyToClipboard(selection);
+                    }
+                });
+
+                document.addEventListener('paste', (e) => {
+                    const isImeTarget = e.target === imeInput;
+                    if (isImeTarget) return;
+                    if (isEditableTarget(e.target)) return;
+                    const text = e.clipboardData?.getData('text/plain');
+                    if (text) {
+                        e.preventDefault();
+                        terminal.send_input(text);
+                    }
+                });
+
+                // iOS/iPadOS virtual keyboard support (disabled on coarse pointer by default)
+                const isCoarsePointer = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+                let allowSystemKeyboard = !isCoarsePointer;
+                if (keyboardDisabled) {
+                    allowSystemKeyboard = true;
+                }
+
+                function focusIme() {
+                    if (!allowSystemKeyboard) return;
+                    if (imeInput) {
+                        imeInput.focus({ preventScroll: true });
+                    }
+                }
+
+                canvas.addEventListener('touchstart', () => focusIme(), { passive: true });
+                canvas.addEventListener('mousedown', () => focusIme());
+
+                imeInput.addEventListener('beforeinput', (e) => {
+                    if (!e || !e.inputType) return;
+                    if (e.inputType === 'deleteContentBackward') {
+                        terminal.send_input('\x7f');
+                        e.preventDefault();
+                    } else if (e.inputType === 'insertLineBreak') {
+                        terminal.send_input('\r');
+                        e.preventDefault();
+                    }
+                });
+
+                imeInput.addEventListener('input', () => {
+                    const value = imeInput.value;
+                    if (value) {
+                        terminal.send_input(value);
+                        imeInput.value = '';
+                    }
+                });
+
+                imeInput.addEventListener('compositionend', (e) => {
+                    if (e.data) {
+                        terminal.send_input(e.data);
+                        imeInput.value = '';
+                    }
+                });
+
+                // Remote toolbar + virtual keyboard
+                function setToolbarActive(action, active) {
+                    const btn = toolbar?.querySelector(`[data-action="${action}"]`);
+                    if (!btn) return;
+                    btn.classList.toggle('active', active);
+                }
+
+                function updateKeyboardOffset() {
+                    if (!keyboard || keyboardDisabled) {
+                        document.documentElement.style.setProperty('--keyboard-offset', '0px');
+                        return;
+                    }
+                    const height = keyboardVisible ? keyboard.offsetHeight : 0;
+                    document.documentElement.style.setProperty('--keyboard-offset', `${height}px`);
+                    scheduleResize(true);
+                }
+
+                function toggleKeyboard(force) {
+                    if (keyboardDisabled) return;
+                    keyboardVisible = typeof force === 'boolean' ? force : !keyboardVisible;
+                    keyboard?.classList.toggle('show', keyboardVisible);
+                    document.body.classList.toggle('keyboard-open', keyboardVisible);
+                    setToolbarActive('toggle-keyboard', keyboardVisible);
+                    updateKeyboardOffset();
+                    setTimeout(() => scheduleResize(true), 260);
+                }
+
+                function toggleAccessory(force) {
+                    if (keyboardDisabled) return;
+                    accessoryVisible = typeof force === 'boolean' ? force : !accessoryVisible;
+                    accessoryRow?.classList.toggle('show', accessoryVisible);
+                    setToolbarActive('toggle-accessory', accessoryVisible);
+                    updateKeyboardOffset();
+                    setTimeout(() => scheduleResize(true), 260);
+                }
+
+                function toggleSettings(force) {
+                    const visible = typeof force === 'boolean' ? force : !settingsOverlay?.classList.contains('show');
+                    settingsOverlay?.classList.toggle('show', visible);
+                }
+
+                async function lockSystem() {
+                    if (!confirm('Lock system? All sessions will be invalidated and passkey will be required.')) {
+                        return;
+                    }
+                    try {
+                        const resp = await fetch('/api/auth/lock', { method: 'POST' });
+                        if (resp.ok) {
+                            window.location.href = '/login';
+                        } else {
+                            alert('Failed to lock system');
+                        }
+                    } catch (e) {
+                        alert('Error: ' + e.message);
+                    }
+                }
+
+                function setModifier(mod, value) {
+                    if (mod === 'ctrl') ctrlActive = value;
+                    if (mod === 'alt') altActive = value;
+                    if (mod === 'meta') metaActive = value;
+                    if (mod === 'shift') shiftActive = value;
+                    if (mod === 'meta') setToolbarActive('meta', value);
+                    keyboard?.querySelectorAll(`[data-mod="${mod}"]`).forEach((btn) => {
+                        btn.classList.toggle('active', value);
+                    });
+                }
+
+                function sendKey(code, key, opts = {}) {
+                    const ctrl = opts.ctrl ?? ctrlActive;
+                    const alt = opts.alt ?? altActive;
+                    const meta = opts.meta ?? metaActive;
+                    const shift = opts.shift ?? false;
+                    terminal.on_key(code, key || code, ctrl, alt, meta, shift);
+                }
+
+                function sendText(text) {
+                    if (!text) return;
+                    terminal.send_input(text);
+                }
+
+                async function pasteText() {
+                    if (navigator.clipboard && navigator.clipboard.readText) {
+                        try {
+                            const text = await navigator.clipboard.readText();
+                            if (text) {
+                                sendText(text);
+                                return;
+                            }
+                        } catch (err) {
+                            console.error('Clipboard read failed:', err);
+                        }
+                    }
+                    const fallback = window.prompt('Paste text');
+                    if (fallback) sendText(fallback);
+                }
+
+                function buildKey(def) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'kbd-key';
+                    if (def.kind === 'fn') btn.classList.add('fn');
+                    if (def.kind === 'acc') btn.classList.add('acc');
+                    if (def.width) btn.classList.add(`wide-${def.width}`);
+                    if (def.action === 'space') btn.classList.add('space');
+                    if (def.action === 'shift' && shiftActive) btn.classList.add('active');
+
+                    if (def.html) {
+                        btn.innerHTML = def.html;
+                    } else if (def.label) {
+                        btn.textContent = def.label;
+                    }
+
+                    btn.dataset.action = def.action || '';
+                    if (def.value) btn.dataset.value = def.value;
+                    if (def.code) btn.dataset.code = def.code;
+                    return btn;
+                }
+
+                function renderKeyboard() {
+                    if (keyboardDisabled) return;
+                    if (!keyboardRows) return;
+                    keyboardRows.innerHTML = '';
+                    const iconBackspace = '<svg viewBox="0 0 24 24"><path d="M4 12l5-6h9a3 3 0 0 1 0 12H9l-5-6Z"/><path d="M12 9l6 6M18 9l-6 6"/></svg>';
+                    const iconEnter = '<svg viewBox="0 0 24 24"><path d="M4 12h11"/><path d="M12 7l4 5-4 5"/><path d="M20 4v8"/></svg>';
+
+                    const alpha = [
+                        ['q','w','e','r','t','y','u','i','o','p'],
+                        ['a','s','d','f','g','h','j','k','l'],
+                        [
+                            { action: 'shift', label: 'Shift', kind: 'fn', width: 2 },
+                            'z','x','c','v','b','n','m',
+                            { action: 'backspace', kind: 'fn', width: 2, html: iconBackspace }
+                        ],
+                        [
+                            { action: 'toggle-layout', label: '123', kind: 'fn', width: 2 },
+                            { action: 'space', label: 'Spacja', kind: 'fn', width: 4, html: 'Spacja<span class="kbd-sub">EN PL</span>' },
+                            { action: 'enter', kind: 'fn', width: 2, html: iconEnter }
+                        ]
+                    ];
+
+                    const numeric = [
+                        ['1','2','3','4','5','6','7','8','9','0'],
+                        ['-','/',';',':','(',')','$','&','@','"'],
+                        [
+                            { action: 'toggle-layout', label: 'ABC', kind: 'fn', width: 2 },
+                            '.', ',', '?', '!', "'",
+                            { action: 'backspace', kind: 'fn', width: 2, html: iconBackspace }
+                        ],
+                        [
+                            { action: 'space', label: 'Spacja', kind: 'fn', width: 4, html: 'Spacja<span class="kbd-sub">EN PL</span>' },
+                            { action: 'enter', kind: 'fn', width: 2, html: iconEnter }
+                        ]
+                    ];
+
+                    const rows = layoutMode === 'alpha' ? alpha : numeric;
+                    rows.forEach((row) => {
+                        const rowEl = document.createElement('div');
+                        rowEl.className = 'kbd-row';
+                        row.forEach((item) => {
+                            let def;
+                            if (typeof item === 'string') {
+                                const label = shiftActive ? item.toUpperCase() : item.toLowerCase();
+                                def = {
+                                    label,
+                                    value: label,
+                                    code: mapValueToCode(label),
+                                };
+                            } else {
+                                def = item;
+                                if (def.action === 'toggle-layout') {
+                                    def.label = layoutMode === 'alpha' ? '123' : 'ABC';
+                                }
+                            }
+                            const key = buildKey(def);
+                            rowEl.appendChild(key);
+                        });
+                        keyboardRows.appendChild(rowEl);
+                    });
+
+                    updateKeyboardOffset();
+                }
+
+                function mapValueToCode(value) {
+                    if (!value || value.length !== 1) return '';
+                    if (/[a-z]/i.test(value)) return `Key${value.toUpperCase()}`;
+                    if (/[0-9]/.test(value)) return `Digit${value}`;
+                    const map = {
+                        ' ': 'Space',
+                        '-': 'Minus',
+                        '=': 'Equal',
+                        '[': 'BracketLeft',
+                        ']': 'BracketRight',
+                        '\\': 'Backslash',
+                        ';': 'Semicolon',
+                        "'": 'Quote',
+                        ',': 'Comma',
+                        '.': 'Period',
+                        '/': 'Slash',
+                        '`': 'Backquote',
+                    };
+                    return map[value] || '';
+                }
+
+                function handleKeyboardAction(action, value, code) {
+                    switch (action) {
+                        case 'shift':
+                            shiftActive = !shiftActive;
+                            renderKeyboard();
+                            return;
+                        case 'ctrl':
+                            setModifier('ctrl', !ctrlActive);
+                            return;
+                        case 'alt':
+                            setModifier('alt', !altActive);
+                            return;
+                        case 'meta':
+                            setModifier('meta', !metaActive);
+                            return;
+                        case 'esc':
+                            sendKey('Escape', 'Escape');
+                            return;
+                        case 'macro-ctrl-c':
+                            sendKey('KeyC', 'c', { ctrl: true, alt: false, meta: false, shift: false });
+                            return;
+                        case 'macro-ctrl-d':
+                            sendKey('KeyD', 'd', { ctrl: true, alt: false, meta: false, shift: false });
+                            return;
+                        case 'macro-ctrl-l':
+                            sendKey('KeyL', 'l', { ctrl: true, alt: false, meta: false, shift: false });
+                            return;
+                        case 'macro-ctrl-r':
+                            sendKey('KeyR', 'r', { ctrl: true, alt: false, meta: false, shift: false });
+                            return;
+                        case 'macro-ctrl-a':
+                            sendKey('KeyA', 'a', { ctrl: true, alt: false, meta: false, shift: false });
+                            return;
+                        case 'macro-ctrl-e':
+                            sendKey('KeyE', 'e', { ctrl: true, alt: false, meta: false, shift: false });
+                            return;
+                        case 'backspace':
+                            sendKey('Backspace', 'Backspace');
+                            return;
+                        case 'enter':
+                            sendKey('Enter', 'Enter');
+                            return;
+                        case 'space':
+                            sendText(' ');
+                            if (shiftActive) {
+                                shiftActive = false;
+                                renderKeyboard();
+                            }
+                            return;
+                        case 'toggle-layout':
+                            layoutMode = layoutMode === 'alpha' ? 'numeric' : 'alpha';
+                            shiftActive = false;
+                            renderKeyboard();
+                            return;
+                        case 'tab':
+                            sendKey('Tab', 'Tab');
+                            return;
+                        case 'arrow-left':
+                            sendKey('ArrowLeft', 'ArrowLeft');
+                            return;
+                        case 'arrow-right':
+                            sendKey('ArrowRight', 'ArrowRight');
+                            return;
+                        case 'arrow-up':
+                            sendKey('ArrowUp', 'ArrowUp');
+                            return;
+                        case 'arrow-down':
+                            sendKey('ArrowDown', 'ArrowDown');
+                            return;
+                        case 'home':
+                            sendKey('Home', 'Home');
+                            return;
+                        case 'end':
+                            sendKey('End', 'End');
+                            return;
+                        case 'pgup':
+                            sendKey('PageUp', 'PageUp');
+                            return;
+                        case 'pgdn':
+                            sendKey('PageDown', 'PageDown');
+                            return;
+                        case 'f1':
+                            sendKey('F1', 'F1');
+                            return;
+                        case 'f2':
+                            sendKey('F2', 'F2');
+                            return;
+                        case 'f3':
+                            sendKey('F3', 'F3');
+                            return;
+                        case 'f4':
+                            sendKey('F4', 'F4');
+                            return;
+                        case 'f5':
+                            sendKey('F5', 'F5');
+                            return;
+                        case 'f6':
+                            sendKey('F6', 'F6');
+                            return;
+                        case 'f7':
+                            sendKey('F7', 'F7');
+                            return;
+                        case 'f8':
+                            sendKey('F8', 'F8');
+                            return;
+                        case 'f9':
+                            sendKey('F9', 'F9');
+                            return;
+                        case 'f10':
+                            sendKey('F10', 'F10');
+                            return;
+                        case 'f11':
+                            sendKey('F11', 'F11');
+                            return;
+                        case 'f12':
+                            sendKey('F12', 'F12');
+                            return;
+                        default:
+                            break;
+                    }
+
+                    if (value) {
+                        const useMods = ctrlActive || altActive || metaActive;
+                        if (useMods && code) {
+                            sendKey(code, value, { shift: shiftActive });
+                        } else {
+                            sendText(value);
+                        }
+                        if (shiftActive) {
+                            shiftActive = false;
+                            renderKeyboard();
+                        }
+                    }
+                }
+
+                function haptic() {
+                    if (navigator.vibrate) {
+                        navigator.vibrate(8);
+                    }
+                }
+
+                function handleKeyboardClick(e) {
+                    const btn = e.target.closest('button');
+                    if (!btn) return;
+                    e.preventDefault();
+                    haptic();
+                    const mod = btn.dataset.mod;
+                    if (mod) {
+                        setModifier(mod, mod === 'ctrl' ? !ctrlActive : mod === 'alt' ? !altActive : !metaActive);
+                        return;
+                    }
+                    const action = btn.dataset.action;
+                    const value = btn.dataset.value;
+                    const code = btn.dataset.code;
+                    handleKeyboardAction(action, value, code);
+                }
+
+                keyboard?.addEventListener('click', handleKeyboardClick);
+                if (keyboardDisabled) {
+                    keyboardVisible = false;
+                    accessoryVisible = false;
+                    keyboard?.classList.remove('show');
+                    accessoryRow?.classList.remove('show');
+                    keyboard?.setAttribute('aria-hidden', 'true');
+                    keyboard?.style.setProperty('display', 'none');
+                    accessoryRow?.style.setProperty('display', 'none');
+                    document.body.classList.remove('keyboard-open');
+                    document.documentElement.style.setProperty('--keyboard-offset', '0px');
+                    const kbBtn = toolbar?.querySelector('[data-action="toggle-keyboard"]');
+                    const accBtn = toolbar?.querySelector('[data-action="toggle-accessory"]');
+                    if (kbBtn) kbBtn.style.display = 'none';
+                    if (accBtn) accBtn.style.display = 'none';
+                }
+
+                const expandBtn = toolbar?.querySelector('[data-action="expand-toolbar"]');
+                expandBtn?.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    haptic();
+                    showToolbar();
+                });
+
+                toolbar?.addEventListener('click', (e) => {
+                    const btn = e.target.closest('button');
+                    if (!btn) return;
+                    e.preventDefault();
+                    haptic();
+                    showToolbar();
+                    const action = btn.dataset.action;
+                    switch (action) {
+                        case 'toggle-keyboard':
+                            toggleKeyboard();
+                            break;
+                        case 'expand-toolbar':
+                            showToolbar();
+                            break;
+                        case 'collapse-toolbar':
+                            minimizeToolbar();
+                            break;
+                        case 'toggle-accessory':
+                            toggleAccessory();
+                            break;
+                        case 'toggle-quick-nav':
+                            quickNavVisible = !quickNavVisible;
+                            toolbar?.classList.toggle('nav-open', quickNavVisible);
+                            scheduleResize();
+                            break;
+                        case 'nav-left':
+                            sendKey('ArrowLeft', 'ArrowLeft');
+                            break;
+                        case 'nav-right':
+                            sendKey('ArrowRight', 'ArrowRight');
+                            break;
+                        case 'nav-up':
+                            sendKey('ArrowUp', 'ArrowUp');
+                            break;
+                        case 'nav-down':
+                            sendKey('ArrowDown', 'ArrowDown');
+                            break;
+                        case 'nav-enter':
+                            sendKey('Enter', 'Enter');
+                            break;
+                        case 'settings':
+                            toggleSettings();
+                            break;
+                        case 'lock':
+                            lockSystem();
+                            break;
+                        case 'wake-lock':
+                            toggleWakeLock();
+                            break;
+                        case 'paste':
+                            pasteText();
+                            break;
+                        case 'clipboard': {
+                            const selection = terminal.copy_selection();
+                            if (selection) {
+                                copyToClipboard(selection);
+                            } else {
+                                pasteText();
+                            }
+                            break;
+                        }
+                        case 'meta':
+                            setModifier('meta', !metaActive);
+                            break;
+                        case 'history':
+                            console.info('History action not implemented yet');
+                            break;
+                        default:
+                            break;
+                    }
+                });
+
+                async function toggleWakeLock() {
+                    if (!('wakeLock' in navigator)) {
+                        console.warn('Wake Lock API not supported');
+                        return;
+                    }
+                    try {
+                        if (wakeLock) {
+                            await wakeLock.release();
+                            wakeLock = null;
+                            setToolbarActive('wake-lock', false);
+                            return;
+                        }
+                        wakeLock = await navigator.wakeLock.request('screen');
+                        setToolbarActive('wake-lock', true);
+                        wakeLock.addEventListener('release', () => {
+                            wakeLock = null;
+                            setToolbarActive('wake-lock', false);
+                        });
+                    } catch (err) {
+                        console.error('Wake Lock failed:', err);
+                        setToolbarActive('wake-lock', false);
+                    }
+                }
+
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible' && wakeLock) {
+                        toggleWakeLock();
+                        toggleWakeLock();
+                    }
+                });
+
+                const TOOLBAR_IDLE_HIDE_MS = 60000;
+                const TOOLBAR_MAX_OPEN_MS = 180000;
+                let toolbarIdleTimer = null;
+                let toolbarMaxTimer = null;
+
+                function minimizeToolbar() {
+                    if (!toolbar) return;
+                    toolbar.classList.add('minimized');
+                    if (toolbarIdleTimer) clearTimeout(toolbarIdleTimer);
+                    if (toolbarMaxTimer) clearTimeout(toolbarMaxTimer);
+                    toolbarIdleTimer = null;
+                    toolbarMaxTimer = null;
+                    scheduleResize(true);
+                    setTimeout(() => scheduleResize(true), 240);
+                }
+
+                function scheduleToolbarTimers() {
+                    if (toolbarIdleTimer) clearTimeout(toolbarIdleTimer);
+                    toolbarIdleTimer = setTimeout(() => minimizeToolbar(), TOOLBAR_IDLE_HIDE_MS);
+                    if (!toolbarMaxTimer) {
+                        toolbarMaxTimer = setTimeout(() => minimizeToolbar(), TOOLBAR_MAX_OPEN_MS);
+                    }
+                }
+
+                function showToolbar() {
+                    if (!toolbar) return;
+                    toolbar.classList.remove('minimized');
+                    scheduleToolbarTimers();
+                    scheduleResize(true);
+                    setTimeout(() => scheduleResize(true), 240);
+                }
+
+                function bumpToolbarTimers() {
+                    if (!toolbar || toolbar.classList.contains('minimized')) return;
+                    scheduleToolbarTimers();
+                }
+
+                document.addEventListener('pointerdown', () => bumpToolbarTimers(), { passive: true });
+                document.addEventListener('pointermove', () => bumpToolbarTimers(), { passive: true });
+                document.addEventListener('keydown', () => bumpToolbarTimers(), { passive: true });
+                window.addEventListener('resize', () => bumpToolbarTimers());
+                minimizeToolbar();
+
+                settingsOverlay?.addEventListener('click', (e) => {
+                    if (e.target === settingsOverlay) {
+                        toggleSettings(false);
+                    }
+                });
+
+                accessoryRow?.addEventListener('click', handleKeyboardClick);
+
+                toggleKeyboard(false);
+                toggleAccessory(false);
+                renderKeyboard();
+                updateKeyboardOffset();
+
+                window.addEventListener('resize', updateKeyboardOffset);
+                
+                // Mouse
+                canvas.addEventListener('mousedown', (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    const dpr = window.devicePixelRatio || 1;
+                    const x = (e.clientX - rect.left) * dpr;
+                    const y = (e.clientY - rect.top) * dpr;
+                    terminal.on_mouse_down(x, y);
+                });
+                
+                window.addEventListener('mousemove', (e) => {
+                    // Only if mouse is down? Terminal logic handles state, but we should track buttons
+                    if (e.buttons === 1) {
+                         const rect = canvas.getBoundingClientRect();
+                         const dpr = window.devicePixelRatio || 1;
+                         const x = (e.clientX - rect.left) * dpr;
+                         const y = (e.clientY - rect.top) * dpr;
+                         terminal.on_mouse_move(x, y);
+                    }
+                });
+                
+                window.addEventListener('mouseup', () => {
+                    terminal.on_mouse_up();
+                    
+                    // Copy on select (Linux style) or just end selection
+                    const selection = terminal.copy_selection();
+                    if (selection) {
+                        copyToClipboard(selection).then((ok) => {
+                            if (!ok) console.warn('Copy failed');
+                        });
+                    }
+                });
+
+                // Scrollback
+                canvas.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const raw = e.deltaY;
+                    let lines = Math.round(raw / 40);
+                    if (lines === 0) {
+                        lines = raw > 0 ? 1 : -1;
+                    }
+                    // Browser deltaY > 0 means scroll down; terminal expects positive = scroll up.
+                    terminal.scroll(-lines);
+                }, { passive: false });
+
+                // Touch scroll (single-finger) - immediate, no inertia
+                let touchScrolling = false;
+                let touchLastY = 0;
+                let touchAccum = 0;
+                const TOUCH_LINE_HEIGHT = 8;
+
+                function applyScrollDelta(deltaPx) {
+                    touchAccum += deltaPx;
+                    let lines = (touchAccum / TOUCH_LINE_HEIGHT) | 0;
+                    if (lines === 0 && Math.abs(touchAccum) >= TOUCH_LINE_HEIGHT * 0.35) {
+                        lines = touchAccum > 0 ? 1 : -1;
+                    }
+                    if (lines !== 0) {
+                        const capped = Math.max(-6, Math.min(6, lines));
+                        terminal.scroll(capped);
+                        touchAccum -= capped * TOUCH_LINE_HEIGHT;
+                    }
+                }
+
+                canvas.addEventListener('touchstart', (e) => {
+                    if (!e.touches || e.touches.length !== 1) return;
+                    touchScrolling = true;
+                    touchLastY = e.touches[0].clientY;
+                    touchAccum = 0;
+                }, { passive: true });
+
+                canvas.addEventListener('touchmove', (e) => {
+                    if (!touchScrolling || !e.touches || e.touches.length !== 1) return;
+                    const y = e.touches[0].clientY;
+                    const dy = y - touchLastY;
+                    touchLastY = y;
+                    applyScrollDelta(dy);
+                    e.preventDefault();
+                }, { passive: false });
+
+                canvas.addEventListener('touchend', () => {
+                    touchScrolling = false;
+                    touchAccum = 0;
+                }, { passive: true });
+
+                let maxFps = 60;
+                let frameIntervalMs = 1000 / maxFps;
+                let lastRenderTs = 0;
+
+                function applyPerformanceProfile(profile) {
+                    const config = perfProfiles[profile] || perfProfiles.lan;
+                    maxFps = Math.max(1, Number(config.maxFps) || 60);
+                    let maxFrames = Number(config.maxFrames);
+                    let minInterval = Number(config.serverMinIntervalMs || 0);
+                    if (isIOS) {
+                        if (Number.isFinite(iosPerf.maxFps)) {
+                            maxFps = Math.max(1, Number(iosPerf.maxFps));
+                        }
+                        if (Number.isFinite(iosPerf.maxFrames)) {
+                            maxFrames = Number(iosPerf.maxFrames);
+                        }
+                        if (Number.isFinite(iosPerf.serverMinIntervalMs)) {
+                            minInterval = Number(iosPerf.serverMinIntervalMs);
+                        }
+                    }
+                    frameIntervalMs = 1000 / maxFps;
+                    if (terminal.set_max_frames_in_queue) {
+                        if (Number.isFinite(maxFrames)) {
+                            terminal.set_max_frames_in_queue(maxFrames);
+                        }
+                    }
+                    if (terminal.set_frame_throttle_ms) {
+                        if (Number.isFinite(minInterval)) {
+                            terminal.set_frame_throttle_ms(minInterval);
+                        }
+                    }
+                    const label = document.getElementById('quality-label');
+                    if (label) {
+                        if (profile === 'cellular') label.textContent = 'Komorkowa';
+                        else if (profile === 'minimal') label.textContent = 'Minimalna';
+                        else if (profile === 'max') label.textContent = 'Maksymalna';
+                        else label.textContent = 'LAN';
+                    }
+                    document.querySelectorAll('[data-quality]').forEach((btn) => {
+                        btn.classList.toggle('active', btn.dataset.quality === profile);
+                    });
+                    try { localStorage.setItem('noirtty.perf_profile', profile); } catch {}
+                }
+
+                function initPerformanceProfile() {
+                    const stored = (() => {
+                        try { return localStorage.getItem('noirtty.perf_profile'); } catch { return null; }
+                    })();
+                    const params = new URLSearchParams(window.location.search);
+                    const fromUrl = params.get('quality') || params.get('perf') || params.get('profile');
+                    if (fromUrl && perfProfiles[fromUrl]) {
+                        applyPerformanceProfile(fromUrl);
+                        return;
+                    }
+                    let initial = stored || perfCfg.profile || 'lan';
+                    if (isIOS && !stored) {
+                        const iosProfile = iosPerf.profile;
+                        if (iosProfile && perfProfiles[iosProfile]) {
+                            initial = iosProfile;
+                        }
+                    }
+                    applyPerformanceProfile(initial);
+                }
+
+                initPerformanceProfile();
+
+                const qualityOptions = document.getElementById('quality-options');
+                const settingsPanel = document.getElementById('settings-panel');
+                if (settingsPanel) {
+                    settingsPanel.addEventListener('click', (e) => {
+                        const target = e.target.closest('[data-action],[data-quality]');
+                        if (!target) return;
+                        const action = target.dataset.action;
+                        if (action === 'toggle-quality') {
+                            qualityOptions?.classList.toggle('show');
+                            return;
+                        }
+                        const quality = target.dataset.quality;
+                        if (quality) {
+                            applyPerformanceProfile(quality);
+                            qualityOptions?.classList.remove('show');
+                        }
+                    });
+                }
+
+                // Render loop
+                function render(ts) {
+                    if (!lastRenderTs) lastRenderTs = ts;
+                    if (ts - lastRenderTs >= frameIntervalMs) {
+                        lastRenderTs = ts;
+                        try {
+                            terminal.render();
+                            renderCount += 1;
+                        } catch (err) {
+                            console.error('Render failed:', err);
+                        }
+                    }
+                    requestAnimationFrame(render);
+                }
+                requestAnimationFrame(render);
+
+            } catch (e) {
+                console.error(e);
+                status.textContent = 'Error: ' + e;
+                status.style.color = '#f44';
+            }
+        }
+        main();
+    </script>
+</body>
+</html>

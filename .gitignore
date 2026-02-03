@@ -1,0 +1,15 @@
+# Rust / Cargo
+/target/
+**/target/
+
+# Local TLS/passkey material
+/certs/
+.env
+.env.*
+*.pem
+*.key
+*.p12
+passkey.json
+
+# OS / editor
+.DS_Store

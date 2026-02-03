@@ -1,0 +1,125 @@
+[package]
+name = "noirtty-web-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# WASM bindings
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+js-sys = { workspace = true }
+console_error_panic_hook = { workspace = true }
+
+# WebGPU rendering
+wgpu = { workspace = true, features = ["webgpu", "webgl"] }
+
+# VTE parser
+vte = "0.15"
+
+# SDF font rendering
+cosmic-text = { workspace = true }
+
+# Text rendering for wgpu
+glyphon = "0.10"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+rkyv = { workspace = true }
+bincode = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-wasm = "0.2"
+
+# Utilities
+futures = { workspace = true }
+thiserror = { workspace = true }
+bytemuck = { version = "1.14", features = ["derive"] }
+
+# Web APIs
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    # Core DOM
+    "console",
+    "Document",
+    "Element",
+    "Window",
+    "Navigator",
+    "Performance",
+
+    # Canvas
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "TextMetrics",
+
+    # WebSocket
+    "WebSocket",
+    "MessageEvent",
+    "BinaryType",
+
+    # WebTransport (HTTP/3)
+    "WebTransport",
+    "WebTransportOptions",
+    "WebTransportBidirectionalStream",
+    "WebTransportSendStream",
+    "WebTransportReceiveStream",
+    "WebTransportDatagramDuplexStream",
+    "ReadableStream",
+    "ReadableStreamDefaultReader",
+    "WritableStream",
+    "WritableStreamDefaultWriter",
+
+    # Input handling
+    "EventTarget",
+    "Event",
+    "KeyboardEvent",
+    "InputEvent",
+    "CompositionEvent",
+    "PointerEvent",
+    "WheelEvent",
+    "FocusEvent",
+
+    # Clipboard
+    "Clipboard",
+    "ClipboardEvent",
+    "DataTransfer",
+
+    # Touch & gestures
+    "TouchEvent",
+    "Touch",
+    "TouchList",
+
+    # PWA & Screen
+    "Screen",
+    "ScreenOrientation",
+    "MediaQueryList",
+
+    # Storage
+    "Storage",
+
+    # Audio (terminal bell)
+    "AudioContext",
+    "OscillatorNode",
+    "GainNode",
+    "AudioDestinationNode",
+
+    # Misc
+    "DomRect",
+    "CssStyleDeclaration",
+    "HtmlInputElement",
+    "Location",
+    "Url",
+]
+
+[features]
+default = []
+webgl-fallback = []  # Enable WebGL fallback for older browsers
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(web)'] }

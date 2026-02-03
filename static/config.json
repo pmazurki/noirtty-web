@@ -1,0 +1,74 @@
+{
+  "font": {
+    "size": 14,
+    "stack": [
+      "0xProto Nerd Font Mono",
+      "0xProto Nerd Font",
+      "JetBrains Mono",
+      "Cascadia Mono",
+      "Iosevka",
+      "Source Code Pro",
+      "Hack",
+      "Fira Code",
+      "Noto Sans Mono",
+      "Noto Sans Symbols2",
+      "MesloLGS NF",
+      "SF Mono",
+      "Monaco",
+      "Menlo",
+      "Consolas",
+      "Ubuntu Mono",
+      "Liberation Mono",
+      "DejaVu Sans Mono",
+      "Apple Color Emoji",
+      "Segoe UI Emoji",
+      "Segoe UI Symbol",
+      "Noto Color Emoji",
+      "Twemoji Mozilla",
+      "monospace"
+    ]
+  },
+  "colors": {
+    "background": "#030507",
+    "selection": "#264f78",
+    "cursor": "#c0c0c0",
+    "cursorText": "#030507"
+  },
+  "ui": {
+    "overlayBg": "rgba(3, 5, 7, 0.94)",
+    "toolbarBg": "rgba(2, 3, 5, 0.78)",
+    "keyBg": "#141822",
+    "keyBgDark": "#0F131B",
+    "textMain": "#E6EDF7",
+    "textSub": "rgba(165, 178, 198, 0.6)",
+    "danger": "#FF5D5D",
+    "panelRadius": 20,
+    "pillRadius": 999,
+    "edgePad": 8,
+    "blur": 16,
+    "toolbarMargin": 16,
+    "toolbarGap": 8,
+    "toolbarAffectsViewport": true,
+    "disableKeyboard": false
+  },
+  "performance": {
+    "profile": "max",
+    "ios": {
+      "profile": "minimal",
+      "maxFps": 20,
+      "maxFrames": 1,
+      "serverMinIntervalMs": 120,
+      "maxDpr": 1
+    },
+    "profiles": {
+      "minimal": { "maxFps": 12, "maxFrames": 1, "serverMinIntervalMs": 120 },
+      "lan": { "maxFps": 60, "maxFrames": 4, "serverMinIntervalMs": 0 },
+      "cellular": { "maxFps": 30, "maxFrames": 2, "serverMinIntervalMs": 50 },
+      "max": { "maxFps": 60, "maxFrames": 2, "serverMinIntervalMs": 0 }
+    }
+  },
+  "transport": {
+    "format": "json",
+    "iosFormat": "bincode"
+  }
+}

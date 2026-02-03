@@ -1,0 +1,56 @@
+[package]
+name = "noirtty-web-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+
+# Web framework
+axum = { workspace = true }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+tower-http = { workspace = true }
+tower = { workspace = true }
+
+# WebTransport / QUIC (HTTP/3)
+web-transport-quinn = { workspace = true }
+quinn = { workspace = true }
+rustls = { workspace = true }
+rcgen = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+rkyv = { workspace = true }
+bytes = { workspace = true }
+bincode = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# PTY
+portable-pty = { workspace = true }
+alacritty_terminal = { workspace = true }
+
+# Utilities
+futures = { workspace = true }
+uuid = { workspace = true }
+dashmap = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+http = { workspace = true }
+
+# Authentication (Passkey/WebAuthn)
+webauthn-rs = { workspace = true }
+webauthn-rs-proto = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+url = { workspace = true }
+gethostname = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
