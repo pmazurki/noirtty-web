@@ -7,8 +7,9 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
         Query,
+        Path as AxumPath,
     },
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response, Redirect},
     routing::{get, post},
     Router,
@@ -31,7 +32,7 @@ use std::net::SocketAddr;
 use tokio::sync::{mpsc, broadcast};
 use tower_http::{cors::CorsLayer, services::ServeDir};
 use tower_http::set_header::SetResponseHeaderLayer;
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{header, HeaderValue};
 use tower::ServiceBuilder;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -40,6 +41,11 @@ use rustls::crypto::ring;
 use gethostname::gethostname;
 use bincode;
 use std::sync::atomic::{AtomicU64, Ordering};
+use include_dir::{include_dir, Dir};
+use axum::body::Body;
+use mime_guess::from_path;
+
+static EMBEDDED_STATIC: Dir = include_dir!("$CARGO_MANIFEST_DIR/../static");
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
@@ -101,6 +107,8 @@ struct AppState {
     sessions: Arc<DashMap<String, Arc<Session>>>,
     auth: auth::AuthState,
     config_path: Arc<std::path::PathBuf>,
+    static_dir: Arc<std::path::PathBuf>,
+    use_embedded_static: bool,
     debug_ui: bool,
 }
 
@@ -149,7 +157,15 @@ async fn main() {
     }
 
     let static_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../static");
-    info!("Serving static files from: {:?}", static_dir);
+    let embed_static = std::env::var("NOIRTTY_EMBED_STATIC")
+        .map(|v| v != "0")
+        .unwrap_or(false);
+    let use_embedded_static = embed_static || !static_dir.exists();
+    if use_embedded_static {
+        info!("Serving embedded static assets");
+    } else {
+        info!("Serving static files from: {:?}", static_dir);
+    }
 
     let debug_ui = std::env::var("NOIRTTY_DEBUG")
         .map(|v| v != "0")
@@ -159,6 +175,8 @@ async fn main() {
         sessions: Arc::new(DashMap::new()),
         auth: auth.clone(),
         config_path: Arc::new(static_dir.join("config.json")),
+        static_dir: Arc::new(static_dir.clone()),
+        use_embedded_static,
         debug_ui,
     };
 
@@ -174,7 +192,7 @@ async fn main() {
         .service(ServeDir::new(&static_dir).append_index_html_on_directories(true));
 
     // All routes with state
-    let app = Router::new()
+    let mut app = Router::new()
         // Auth routes (no auth required)
         .route("/setup", get(setup_page_handler))
         .route("/login", get(login_page_handler))
@@ -189,9 +207,14 @@ async fn main() {
         .route("/ws", get(ws_handler_with_auth))
         .route("/health", get(|| async { "OK" }))
         .route("/config.json", get(config_handler))
-        .fallback_service(static_service)
         .with_state(state.clone())
         .layer(CorsLayer::permissive());
+
+    if use_embedded_static {
+        app = app.fallback(get(static_handler));
+    } else {
+        app = app.fallback_service(static_service);
+    }
 
     let addr: SocketAddr = "0.0.0.0:3000".parse().unwrap();
     if use_https {
@@ -257,7 +280,13 @@ async fn index_handler(
 }
 
 async fn config_handler(State(state): State<AppState>) -> impl IntoResponse {
-    let raw = std::fs::read_to_string(&*state.config_path).unwrap_or_else(|_| "{}".to_string());
+    let raw = std::fs::read_to_string(&*state.config_path).unwrap_or_else(|_| {
+        EMBEDDED_STATIC
+            .get_file("config.json")
+            .and_then(|f| std::str::from_utf8(f.contents()).ok())
+            .unwrap_or("{}")
+            .to_string()
+    });
     let mut value: serde_json::Value = serde_json::from_str(&raw).unwrap_or_else(|_| {
         serde_json::json!({})
     });
@@ -281,6 +310,37 @@ async fn config_handler(State(state): State<AppState>) -> impl IntoResponse {
         ],
         body,
     )
+}
+
+async fn static_handler(
+    State(state): State<AppState>,
+    AxumPath(path): AxumPath<String>,
+) -> Response {
+    if !state.use_embedded_static {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let mut rel = path.trim_start_matches('/').to_string();
+    if rel.is_empty() || rel.ends_with('/') {
+        rel.push_str("index.html");
+    }
+
+    let file = EMBEDDED_STATIC.get_file(&rel);
+    if let Some(file) = file {
+        let mime = from_path(&rel).first_or_octet_stream();
+        return (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, mime.as_ref()),
+                (header::CACHE_CONTROL, "no-store"),
+                (header::PRAGMA, "no-cache"),
+            ],
+            Body::from(file.contents()),
+        )
+            .into_response();
+    }
+
+    StatusCode::NOT_FOUND.into_response()
 }
 
 // Auth handler wrappers (use AppState instead of AuthState)

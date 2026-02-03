@@ -87,6 +87,12 @@ NOIRTTY_DEBUG=1 ./target/debug/noirtty-web-server
 Generated files (not committed by default):
 - `certs/` (self-signed TLS cert + passkey storage)
 
+Embedded assets:
+NoirTTY embeds `static/` into the server binary. If you want to force file-based assets during dev:
+```bash
+NOIRTTY_EMBED_STATIC=0 ./dist/noirtty-web-server
+```
+
 ## Project Structure
 
 ```
